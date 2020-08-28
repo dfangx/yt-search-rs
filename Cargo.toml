@@ -12,4 +12,4 @@ tokio = { version = "0.2", features = ["macros","rt-threaded"] }
 structopt = "0.3"
 futures = "0.3"
 json = "0.12"
-bytevec = "0.2"
+prettytable-rs = "0.8"
