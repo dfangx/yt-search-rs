@@ -10,6 +10,11 @@ to come.
 Build using `cargo build --release`. You can find the resulting binary in
 `./target/release/`. Copy the `yt-search` binary into your $PATH.
 
+## Runtime Dependencies
+
+Requires [fzf](https://github.com/junegunn/fzf) for interactive mode. Install to
+`/usr/bin`. This will probably be changed later to a more modular approach.
+
 ## Usage 
 
 Run `yt-search --help` to see available options and arguments
