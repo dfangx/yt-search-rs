@@ -1,3 +1,7 @@
+mod data;
+
+use data::{Playlist, Video};
+use prettytable::{cell, row, Table};
 use reqwest::Client;
 use std::{
     io::prelude::*,
@@ -12,12 +16,16 @@ const BASE_URL: &str = "https://youtube.com";
 #[tokio::main]
 async fn main() -> Result<(), reqwest::Error> {
     let opts = Opts::from_args();
-    let process = if opts.interactive {
-        Command::new("/usr/bin/fzf")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .ok()
+    let process = if let Some(ref bin) = opts.bin {
+        if opts.interactive {
+            Command::new(bin)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .ok()
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -36,25 +44,36 @@ async fn main() -> Result<(), reqwest::Error> {
     let (videos_as_string, playlists_as_string) = data_to_string(&video_list, &playlist_list);
 
     if let Some(mut process) = process {
-        data_pipe_to_fzf(&mut process, videos_as_string, playlists_as_string);
+        data_pipe_to_process(&mut process, videos_as_string, playlists_as_string);
         let selection = get_selection(process);
         selection.and_then(|selection| {
-            print_selection(video_list, playlist_list, selection, opts.url_only);
+            if !selection.is_empty() {
+                print_selection(video_list, playlist_list, selection, opts.url_only);
+            }
             Some("")
         });
     } else {
-        output(&videos_as_string, &playlists_as_string);
+        output(&video_list, &playlist_list);
+        if opts.interactive {
+            let selection = input();
+            if !selection.is_empty() {
+                print_selection(video_list, playlist_list, selection, opts.url_only);
+            }
+        }
     }
     Ok(())
 }
 
 fn get_selection(process: std::process::Child) -> Option<String> {
-    let output = process.wait_with_output().unwrap();
-    let selection = String::from_utf8(output.stdout).ok();
+    let selection = match process.wait_with_output() {
+        Ok(output) => String::from_utf8(output.stdout).ok(),
+        Err(_) => None,
+    };
+    //let selection = String::from_utf8(output.stdout).ok();
     selection
 }
 
-fn data_pipe_to_fzf(
+fn data_pipe_to_process(
     process: &mut std::process::Child,
     videos_as_string: Vec<String>,
     playlists_as_string: Vec<String>,
@@ -63,7 +82,7 @@ fn data_pipe_to_fzf(
         match process.stdin {
             Some(ref mut input) => match input.write_all(&video.as_bytes()) {
                 Ok(_) => {}
-                Err(e) => panic!("Could not send to fzf: {}", e),
+                Err(e) => panic!("Could not send to child process: {}", e),
             },
             None => panic!("Something went wrong"),
         }
@@ -72,7 +91,7 @@ fn data_pipe_to_fzf(
         match process.stdin {
             Some(ref mut input) => match input.write_all(&pl.as_bytes()) {
                 Ok(_) => {}
-                Err(e) => panic!("Could not send to fzf: {}", e),
+                Err(e) => panic!("Could not send to child process: {}", e),
             },
             None => panic!("Something went wrong"),
         }
@@ -86,22 +105,12 @@ fn data_to_string(
     let videos_as_string: Vec<String> = video_list
         .iter()
         .enumerate()
-        .map(|(i, video)| {
-            format!(
-                "V{} {:<120} {:<40} {:<20} {:<10}\n",
-                i, video.name, video.owner, video.published, video.length
-            )
-        })
+        .map(|(i, video)| format!("V{} {}\n", i, video.to_string()))
         .collect();
     let playlists_as_string: Vec<String> = playlist_list
         .iter()
         .enumerate()
-        .map(|(i, pl)| {
-            format!(
-                "P{} {:<120} {:<40} {:<20} {:<10}\n",
-                i, pl.name, pl.owner, pl.published, pl.video_count
-            )
-        })
+        .map(|(i, pl)| format!("P{} {}\n", i, pl.to_string()))
         .collect();
     (videos_as_string, playlists_as_string)
 }
@@ -182,22 +191,16 @@ fn print_selection(
     if id.to_lowercase().starts_with('p') {
         let pl = &playlist_list[index];
         if url_only {
-            println!("{}{}", BASE_URL, pl.url);
+            println!("{}{}", BASE_URL, pl.url());
         } else {
-            println!(
-                "{:<100} {:<50} {:<500} {:<500}",
-                pl.name, pl.owner, pl.published, pl.video_count
-            );
+            println!("{}", pl.to_string());
         }
     } else if id.to_lowercase().starts_with('v') {
         let video = &video_list[index];
         if url_only {
-            println!("{}{}", BASE_URL, video.url);
+            println!("{}{}", BASE_URL, video.url());
         } else {
-            println!(
-                "{:<100} {:<60} {:<20} {:<10}",
-                video.name, video.owner, video.published, video.length
-            );
+            println!("{}", video.to_string());
         }
     }
 }
@@ -252,14 +255,22 @@ fn create_video_item(item: &json::JsonValue) -> Video {
     video
 }
 
-fn _input() -> String {
-    println!("Enter a selection: ");
+fn input() -> String {
     let mut line = String::new();
-    std::io::stdin().read_line(&mut line).unwrap();
-    line
+    while line.is_empty()
+        || line[1..].trim().parse::<usize>().is_err()
+            && (!line.to_lowercase().starts_with('p') || !line.to_lowercase().starts_with('v'))
+    {
+        line = String::new();
+        println!(
+            "Enter the ID of your selection. You will be prompted again if an invalid input is given:"
+        );
+        std::io::stdin().read_line(&mut line).unwrap();
+    }
+    line.trim().to_string()
 }
 
-fn output(video_list: &Vec<String>, playlist_list: &Vec<String>) {
+fn output(video_list: &Vec<Video>, playlist_list: &Vec<Playlist>) {
     if !video_list.is_empty() {
         display_videos(video_list);
         println!("");
@@ -271,26 +282,50 @@ fn output(video_list: &Vec<String>, playlist_list: &Vec<String>) {
     }
 }
 
-fn display_videos(video_list: &Vec<String>) {
+fn display_videos(video_list: &Vec<Video>) {
     println!("VIDEOS");
-    println!(
-        "{:<120} {:<40} {:<20} {:<10}",
-        "Video Name", "Video Owner", "Publishing Date", "Duration"
-    );
-    for video in video_list {
-        println!("{}", video.trim());
+    let mut table = Table::new();
+    table.set_titles(row![
+        "ID",
+        "Video Name",
+        "Video Owner",
+        "Publishing Date",
+        "Duration"
+    ]);
+    for (i, video) in video_list.iter().enumerate() {
+        table.add_row(video.to_row(i));
     }
+    table.printstd();
+    //println!(
+    //    "{:<120} {:<40} {:<20} {:<10}",
+    //    "Video Name", "Video Owner", "Publishing Date", "Duration"
+    //);
+    //for video in video_list {
+    //    println!("{}", video.trim());
+    //}
 }
 
-fn display_playlists(playlist_list: &Vec<String>) {
-    println!("PLAYLISTS");
-    println!(
-        "{:<120} {:<40} {:<20} {:<10}",
-        "Playlist Name", "Playlist Owner", "Publishing Date", "Video Count"
-    );
-    for pl in playlist_list {
-        println!("{}", pl.trim());
+fn display_playlists(playlist_list: &Vec<Playlist>) {
+    //println!("PLAYLISTS");
+    let mut table = Table::new();
+    table.set_titles(row![
+        "ID",
+        "Playlist Name",
+        "Playlist Owner",
+        "Publishing Date",
+        "Video Count"
+    ]);
+    for (i, pl) in playlist_list.iter().enumerate() {
+        table.add_row(pl.to_row(i));
     }
+    table.printstd();
+    //println!(
+    //    "{:<120} {:<40} {:<20} {:<10}",
+    //    "Playlist Name", "Playlist Owner", "Publishing Date", "Video Count"
+    //);
+    //for pl in playlist_list {
+    //    println!("{}", pl.trim());
+    //}
 }
 async fn make_request(
     params: Vec<(&str, String)>,
@@ -313,63 +348,27 @@ arg_enum! {
     }
 }
 
+arg_enum! {
+#[derive(Debug)]
+    enum InteractiveMethod {
+        Stdin,
+        Fzf,
+    }
+}
+
 #[derive(StructOpt, Debug)]
 #[structopt(name = "yt-search")]
 struct Opts {
     #[structopt(short, long)]
     interactive: bool,
+    #[structopt(short, long, required_if("interactive", "true"))]
+    bin: Option<String>,
     #[structopt(short, long)]
     url_only: bool,
     #[structopt(short, long, default_value = "3")]
     pages: u32,
     #[structopt(short, long, default_value = "None", possible_values = &YTFilter::variants(), case_insensitive = true)]
     filter: YTFilter,
+    #[structopt(name = "SEARCH_TERM")]
     search_term: String,
-}
-
-#[derive(Debug)]
-struct Playlist {
-    name: String,
-    url: String,
-    published: String,
-    video_count: String,
-    owner: String,
-}
-
-impl Playlist {
-    fn new(
-        name: String,
-        url: String,
-        published: String,
-        video_count: String,
-        owner: String,
-    ) -> Self {
-        Playlist {
-            name,
-            url,
-            published,
-            video_count,
-            owner,
-        }
-    }
-}
-#[derive(Debug)]
-struct Video {
-    name: String,
-    length: String,
-    url: String,
-    owner: String,
-    published: String,
-}
-
-impl Video {
-    fn new(name: String, length: String, url: String, owner: String, published: String) -> Self {
-        Video {
-            name,
-            length,
-            url,
-            owner,
-            published,
-        }
-    }
 }
