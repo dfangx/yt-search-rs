@@ -210,10 +210,8 @@ fn create_playlist_item(item: &json::JsonValue) -> Playlist {
         .dump()
         .trim_matches('"')
         .to_string();
-    let url = item["navigationEndpoint"]["commandMetadata"]["webCommandMetadata"]["url"]
-        .dump()
-        .trim_matches('"')
-        .to_string();
+    let url =
+        String::from("/playlist?list=") + &item["playlistId"].dump().trim_matches('"').to_string();
     let published = item["publishedTimeText"]["simpleText"]
         .dump()
         .trim_matches('"')
