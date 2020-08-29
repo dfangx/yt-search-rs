@@ -359,16 +359,38 @@ arg_enum! {
 #[derive(StructOpt, Debug)]
 #[structopt(name = "yt-search")]
 struct Opts {
-    #[structopt(short, long)]
+    #[structopt(
+        short,
+        long,
+        help = "Include this flag if you want to be able to select a search result"
+    )]
     interactive: bool,
-    #[structopt(short, long, required_if("interactive", "true"))]
+    #[structopt(
+        short,
+        long,
+        required_if("interactive", "true"),
+        help = "Specify the binary to be used for interaction. If not provided, uses stdout/stdin"
+    )]
     bin: Option<String>,
-    #[structopt(short, long)]
+    #[structopt(
+        short,
+        long,
+        help = "Include this flag to output the url of selected result only. If not interactive, this does nothing"
+    )]
     url_only: bool,
-    #[structopt(short, long, default_value = "3")]
+    #[structopt(
+        short,
+        long,
+        default_value = "3",
+        help = "Number of pages to search for"
+    )]
     pages: u32,
-    #[structopt(short, long, default_value = "None", possible_values = &YTFilter::variants(), case_insensitive = true)]
+    #[structopt(short, long, default_value = "None", possible_values = &YTFilter::variants(), case_insensitive = true, help = "Search filter to apply")]
     filter: YTFilter,
-    #[structopt(name = "SEARCH_TERM")]
+    #[structopt(
+        name = "SEARCH_TERM",
+        parse(from_str),
+        help = "Words used for the search"
+    )]
     search_term: String,
 }
