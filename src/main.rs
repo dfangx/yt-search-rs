@@ -123,18 +123,43 @@ async fn search_and_parse(
     Ok(parse_rsp(html).await?)
 }
 
+fn get_sp_code(filter: &YTFilter, sort: &YTSort) -> String {
+    let filter = match filter {
+        YTFilter::Video => match sort {
+            YTSort::Relevance => String::from("CAASAhAB"),
+            YTSort::UploadDate => String::from("CAISAhAB"),
+            YTSort::ViewCount => String::from("CAMSAhAB"),
+            YTSort::Rating => String::from("CAESAhAB"),
+        },
+        YTFilter::Playlist => match sort {
+            YTSort::Relevance => String::from("CAASAhAD"),
+            YTSort::UploadDate => String::from("CAISAhAD"),
+            YTSort::ViewCount => String::from("CAMSAhAD"),
+            YTSort::Rating => String::from("CAESAhAD"),
+        },
+        _ => match sort {
+            YTSort::Relevance => String::from("CAA%3D"),
+            YTSort::UploadDate => String::from("CAI%3D"),
+            YTSort::ViewCount => String::from("CAM%3D"),
+            YTSort::Rating => String::from("CAE%3D"),
+        },
+    };
+    filter
+}
+
 fn construct_handles(
     opts: &Opts,
 ) -> Vec<JoinHandle<Result<(Vec<Video>, Vec<Playlist>), reqwest::Error>>> {
     let client = Arc::new(Client::new());
     let mut handles = vec![];
+    /*
     let filter = match opts.filter {
         YTFilter::Video => String::from("EgIQAQ%3D%3D"),
-        YTFilter::Channel => String::from("EgIQAg%3D%3D"),
         YTFilter::Playlist => String::from("EgIQAw%3D%3D"),
         _ => String::new(),
     };
-
+    */
+    let filter = get_sp_code(&opts.filter, &opts.sort);
     for p in 1..=opts.pages {
         let p = p.to_string();
         let mut params = vec![
@@ -341,7 +366,6 @@ arg_enum! {
     enum YTFilter {
         Video,
         Playlist,
-        Channel,
         None,
     }
 }
@@ -354,6 +378,15 @@ arg_enum! {
     }
 }
 
+arg_enum! {
+    #[derive(Debug)]
+    enum YTSort {
+        Relevance,
+        UploadDate,
+        ViewCount,
+        Rating,
+    }
+}
 #[derive(StructOpt, Debug)]
 #[structopt(name = "yt-search")]
 struct Opts {
@@ -385,6 +418,8 @@ struct Opts {
     pages: u32,
     #[structopt(short, long, default_value = "None", possible_values = &YTFilter::variants(), case_insensitive = true, help = "Search filter to apply")]
     filter: YTFilter,
+    #[structopt(short, long, default_value = "Relevance", possible_values = &YTSort::variants(), case_insensitive = true, help = "Sort to apply")]
+    sort: YTSort,
     #[structopt(
         name = "SEARCH_TERM",
         parse(from_str),
